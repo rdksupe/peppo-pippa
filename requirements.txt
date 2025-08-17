@@ -8,4 +8,4 @@ Pillow==10.1.0
 python-ffmpeg==2.0.12
 httpx==0.25.2
 pydantic==2.5.0
-huggingface_hub==0.20.3
+openai==1.51.0
