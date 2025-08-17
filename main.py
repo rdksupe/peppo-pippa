@@ -1,7 +1,7 @@
 import os
 import uuid
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import httpx
 from dotenv import load_dotenv
-import modal
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
@@ -42,9 +42,20 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # In-memory storage for video generation tasks
 video_tasks: Dict[str, Dict[str, Any]] = {}
 
+class VideoCustomization(BaseModel):
+    style: Optional[str] = Field(default=None, description="Visual style (cinematic, artistic, realistic, etc.)")
+    camera_angle: Optional[str] = Field(default=None, description="Camera perspective")
+    lighting: Optional[str] = Field(default=None, description="Lighting conditions")
+    movement: Optional[str] = Field(default=None, description="Camera/subject movement")
+    mood: Optional[str] = Field(default=None, description="Overall mood/atmosphere")
+    color_palette: Optional[str] = Field(default=None, description="Color scheme preference")
+    quality: Optional[str] = Field(default=None, description="Quality/resolution preference")
+    effects: Optional[List[str]] = Field(default=None, description="Special effects")
+
 class VideoGenerationRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=500, description="Text prompt for video generation")
     duration: Optional[int] = Field(default=5, ge=3, le=10, description="Video duration in seconds")
+    customization: Optional[VideoCustomization] = Field(default=None, description="Video customization options")
     
 class VideoGenerationResponse(BaseModel):
     task_id: str
@@ -58,6 +69,77 @@ class VideoStatusResponse(BaseModel):
     video_url: Optional[str] = None
     error: Optional[str] = None
     created_at: str
+    original_prompt: Optional[str] = None
+    enhanced_prompt: Optional[str] = None
+    customization: Optional[VideoCustomization] = None
+
+class GroqPromptEnhancer:
+    def __init__(self):
+        self.client = OpenAI(
+            api_key=os.getenv("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1"
+        )
+    
+    async def enhance_prompt(self, original_prompt: str, customization: Optional[VideoCustomization] = None) -> str:
+        """Enhance the user prompt using Groq LLM with customization options"""
+        try:
+            # Build the enhancement instruction
+            enhancement_instruction = """You are an expert at creating detailed, cinematic video generation prompts. 
+Your task is to enhance the user's basic prompt into a professional, detailed description that will produce high-quality AI-generated videos.
+
+Guidelines:
+- Keep the core concept from the original prompt
+- Add cinematic details, camera movements, lighting, and atmosphere
+- Make it vivid and specific
+- Focus on visual elements that translate well to video
+- Keep it under 300 characters
+- Return ONLY the enhanced prompt, no explanations"""
+
+            # Add customization context if provided
+            customization_context = ""
+            if customization:
+                customization_details = []
+                if customization.style:
+                    customization_details.append(f"Style: {customization.style}")
+                if customization.camera_angle:
+                    customization_details.append(f"Camera angle: {customization.camera_angle}")
+                if customization.lighting:
+                    customization_details.append(f"Lighting: {customization.lighting}")
+                if customization.movement:
+                    customization_details.append(f"Movement: {customization.movement}")
+                if customization.mood:
+                    customization_details.append(f"Mood: {customization.mood}")
+                if customization.color_palette:
+                    customization_details.append(f"Color palette: {customization.color_palette}")
+                if customization.quality:
+                    customization_details.append(f"Quality: {customization.quality}")
+                if customization.effects:
+                    customization_details.append(f"Effects: {', '.join(customization.effects)}")
+                
+                if customization_details:
+                    customization_context = f"\n\nCustomization requirements:\n{chr(10).join(customization_details)}"
+
+            user_message = f"""Original prompt: "{original_prompt}"{customization_context}
+
+Please enhance this prompt for video generation while keeping it strictly UNDER 300 -characters :"""
+
+            response = self.client.chat.completions.create(
+                model="meta-llama/llama-4-scout-17b-16e-instruct",
+                messages=[
+                    {"role": "system", "content": enhancement_instruction},
+                    {"role": "user", "content": user_message}
+                ],
+                max_tokens=500,
+                temperature=0.7
+            )
+            
+            enhanced_prompt = response.choices[0].message.content.strip()
+            return enhanced_prompt
+            
+        except Exception as e:
+            print(f"Error enhancing prompt with Groq: {str(e)}")
+            # Fallback to original prompt if Groq fails
+            return original_prompt
 
 class ModalVideoService:
     def __init__(self):
@@ -154,23 +236,30 @@ class ModalVideoService:
         except Exception as e:
             raise Exception(f"Failed to save video: {str(e)}")
 
-# Initialize video service
+# Initialize services
 video_service = ModalVideoService()
+prompt_enhancer = GroqPromptEnhancer()
 
-async def process_video_generation(task_id: str, prompt: str, duration: int):
-    """Background task to process video generation"""
+async def process_video_generation(task_id: str, original_prompt: str, duration: int, customization: Optional[VideoCustomization] = None):
+    """Background task to process video generation with Groq prompt enhancement"""
     try:
         # Update status to processing
         video_tasks[task_id]["status"] = "processing"
-        video_tasks[task_id]["progress"] = 10
+        video_tasks[task_id]["progress"] = 5
+        video_tasks[task_id]["message"] = "Enhancing prompt with AI..."
         
+        # Enhance prompt using Groq LLM
+        enhanced_prompt = await prompt_enhancer.enhance_prompt(original_prompt, customization)
+        video_tasks[task_id]["enhanced_prompt"] = enhanced_prompt
+        video_tasks[task_id]["progress"] = 15
+        video_tasks[task_id]["message"] = "Prompt enhanced, starting video generation..."
         
         # Real API call using Modal LTX
         video_tasks[task_id]["message"] = "Generating video with Modal LTX API..."
         video_tasks[task_id]["progress"] = 30
         
-        # Generate video directly from text using Modal
-        result = await video_service.generate_video(prompt, duration)
+        # Generate video using the enhanced prompt
+        result = await video_service.generate_video(enhanced_prompt, duration)
         
         video_tasks[task_id]["progress"] = 70
         video_tasks[task_id]["message"] = "Processing video output..."
@@ -205,7 +294,7 @@ async def generate_video(
     request: VideoGenerationRequest,
     background_tasks: BackgroundTasks
 ):
-    """Generate a video from text prompt"""
+    """Generate a video from text prompt with customization options"""
     try:
         # Generate unique task ID
         task_id = str(uuid.uuid4())
@@ -215,8 +304,10 @@ async def generate_video(
             "task_id": task_id,
             "status": "queued",
             "progress": 0,
-            "prompt": request.prompt,
+            "original_prompt": request.prompt,
+            "enhanced_prompt": None,
             "duration": request.duration,
+            "customization": request.customization.dict() if request.customization else None,
             "created_at": datetime.now().isoformat(),
             "video_url": None,
             "error": None,
@@ -228,7 +319,8 @@ async def generate_video(
             process_video_generation,
             task_id,
             request.prompt,
-            request.duration
+            request.duration,
+            request.customization
         )
         
         return VideoGenerationResponse(
@@ -253,6 +345,7 @@ async def get_video_status(task_id: str):
 async def health_check():
     """Health check endpoint"""
     modal_configured = bool(os.getenv("MODAL_TOKEN_ID") and os.getenv("MODAL_TOKEN_SECRET"))
+    groq_configured = bool(os.getenv("GROQ_API_KEY"))
     
     # Test connection to the LTX API endpoint
     ltx_api_status = "unknown"
@@ -270,6 +363,7 @@ async def health_check():
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "modal_configured": modal_configured,
+        "groq_configured": groq_configured,
         "ltx_api_status": ltx_api_status,
         "ltx_api_endpoint": "https://rdksupe--ltx-video-api-fastapi-app.modal.run"
     }
