@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import httpx
 from dotenv import load_dotenv
-from huggingface_hub import InferenceClient
+import modal
 
 # Load environment variables
 load_dotenv()
@@ -59,40 +59,64 @@ class VideoStatusResponse(BaseModel):
     error: Optional[str] = None
     created_at: str
 
-class HuggingFaceVideoService:
+class ModalVideoService:
     def __init__(self):
-        self.hf_token = os.getenv("HF_TOKEN")
-        self.client = None
-        if self.hf_token:
-            self.client = InferenceClient(
-                provider="replicate",
-                api_key=self.hf_token,
-            )
+        # Use the specific deployed FastAPI endpoint URL
+        self.base_url = "https://rdksupe--ltx-video-api-fastapi-app.modal.run"
         
+    def get_api_url(self):
+        """Get the deployed FastAPI endpoint URL"""
+        return self.base_url
+
     async def generate_video(self, prompt: str, duration: int = 5) -> Dict[str, Any]:
-        """Generate video using Hugging Face Inference API"""
-        if not self.hf_token:
-            raise Exception("Hugging Face token not configured")
-        
-        if not self.client:
-            raise Exception("Hugging Face client not initialized")
-            
+        """Generate video using Modal LTX FastAPI endpoint"""
         try:
-            # Use the Hugging Face text-to-video API
-            video_result = self.client.text_to_video(
-                prompt,
-                model="Wan-AI/Wan2.2-TI2V-5B",
-            )
+            api_url = self.get_api_url()
             
-            # The result should contain video data or URL
-            return {
-                "status": "completed",
-                "video_data": video_result,
-                "video_url": getattr(video_result, 'url', None) if hasattr(video_result, 'url') else None
+            # Convert duration to num_frames (assuming 15 fps)
+            num_frames = duration * 30
+            
+            # Prepare request payload
+            payload = {
+                "prompt": prompt,
+                "num_frames": num_frames,
+                "num_inference_steps": 50,  # Good quality/speed balance
+                "guidance_scale": 4.5
             }
             
+            # Make API request to generate video
+            async with httpx.AsyncClient(timeout=300.0) as client:  # 5 minute timeout
+                response = await client.post(
+                    f"{api_url}/generate",
+                    json=payload
+                )
+                
+                if response.status_code != 200:
+                    raise Exception(f"API request failed: {response.status_code} - {response.text}")
+                
+                result = response.json()
+                
+                if not result.get("success"):
+                    raise Exception(f"Generation failed: {result.get('error', 'Unknown error')}")
+                
+                # Download the generated video
+                filename = result["video_filename"]
+                video_response = await client.get(f"{api_url}/video/{filename}")
+                
+                if video_response.status_code != 200:
+                    raise Exception(f"Failed to download video: {video_response.status_code}")
+                
+                video_data = video_response.content
+                
+                return {
+                    "status": "completed",
+                    "video_data": video_data,
+                    "video_url": None,  # Will be set after saving locally
+                    "generation_time": result.get("generation_time")
+                }
+                
         except Exception as e:
-            raise Exception(f"Video generation failed: {str(e)}")
+            raise Exception(f"Modal LTX API video generation failed: {str(e)}")
     
     async def save_video_locally(self, video_data: Any, task_id: str) -> str:
         """Save video data to local file and return URL"""
@@ -128,118 +152,10 @@ class HuggingFaceVideoService:
             return f"/static/videos/{filename}"
             
         except Exception as e:
-            raise Exception(f"Failed to save video: {str(e)}")    
-    async def generate_image_from_text(self, prompt: str) -> Dict[str, Any]:
-        """Generate image from text using Hugging Face API"""
-        headers = {
-            "Authorization": f"Bearer {self.hf_token}",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "promptText": prompt,
-            "model": "gen4_image",
-            "ratio": "1280:720"
-        }
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/text_to_image",
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response.status_code != 200:
-                    raise Exception(f"Image generation API error: {response.status_code} - {response.text}")
-                    
-                return response.json()
-                
-            except httpx.TimeoutException:
-                raise Exception("Image generation API request timeout")
-            except Exception as e:
-                raise Exception(f"Image generation failed: {str(e)}")
-        
-    async def generate_video_from_image(self, image_url: str, prompt: str, duration: int = 5) -> Dict[str, Any]:
-        """Generate video from image using Runway ML API"""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "X-Runway-Version": "2024-11-06"
-        }
-        
-        payload = {
-            "promptImage": image_url,
-            "promptText": prompt,
-            "model": "gen3a_turbo",
-            "duration": duration,
-            "ratio": "1280:720"
-        }
-        
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/image_to_video",
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response.status_code != 200:
-                    raise Exception(f"Video generation API error: {response.status_code} - {response.text}")
-                    
-                return response.json()
-                
-            except httpx.TimeoutException:
-                raise Exception("Video generation API request timeout")
-            except Exception as e:
-                raise Exception(f"Video generation failed: {str(e)}")
-
-    async def check_video_status(self, task_id: str) -> Dict[str, Any]:
-        """Check task status using Runway ML API"""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "X-Runway-Version": "2024-11-06"
-        }
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            try:
-                response = await client.get(
-                    f"{self.base_url}/tasks/{task_id}",
-                    headers=headers
-                )
-                
-                if response.status_code != 200:
-                    raise Exception(f"Status check failed: {response.status_code} - {response.text}")
-                    
-                return response.json()
-                
-            except Exception as e:
-                raise Exception(f"Status check failed: {str(e)}")
-    
-    async def wait_for_task_completion(self, task_id: str, max_wait_time: int = 300) -> Dict[str, Any]:
-        """Wait for a task to complete with timeout"""
-        start_time = asyncio.get_event_loop().time()
-        
-        while True:
-            current_time = asyncio.get_event_loop().time()
-            if current_time - start_time > max_wait_time:
-                raise Exception(f"Task {task_id} timed out after {max_wait_time} seconds")
-            
-            status_result = await self.check_video_status(task_id)
-            
-            if status_result.get("status") == "SUCCEEDED":
-                return status_result
-            elif status_result.get("status") == "FAILED":
-                error_msg = status_result.get("failure", {}).get("message", "Unknown error")
-                raise Exception(f"Task failed: {error_msg}")
-            
-            # Wait before next check
-            await asyncio.sleep(3)
-            
-        return status_result
+            raise Exception(f"Failed to save video: {str(e)}")
 
 # Initialize video service
-video_service = HuggingFaceVideoService()
+video_service = ModalVideoService()
 
 async def process_video_generation(task_id: str, prompt: str, duration: int):
     """Background task to process video generation"""
@@ -248,28 +164,12 @@ async def process_video_generation(task_id: str, prompt: str, duration: int):
         video_tasks[task_id]["status"] = "processing"
         video_tasks[task_id]["progress"] = 10
         
-        # For demo purposes, if no API key is available, create a mock response
-        if not os.getenv("HF_TOKEN"):
-            # Simulate processing time
-            await asyncio.sleep(3)
-            video_tasks[task_id]["progress"] = 50
-            video_tasks[task_id]["message"] = "Generating video (mock mode)..."
-            await asyncio.sleep(2)
-            video_tasks[task_id]["progress"] = 90
-            await asyncio.sleep(1)
-            
-            # Mock successful completion
-            video_tasks[task_id]["status"] = "completed"
-            video_tasks[task_id]["progress"] = 100
-            video_tasks[task_id]["video_url"] = f"/static/videos/mock_video_{task_id}.mp4"
-            video_tasks[task_id]["message"] = "Video generated successfully (mock mode - HF token not configured)"
-            return
         
-        # Real API call using Hugging Face
-        video_tasks[task_id]["message"] = "Generating video with AI..."
+        # Real API call using Modal LTX
+        video_tasks[task_id]["message"] = "Generating video with Modal LTX API..."
         video_tasks[task_id]["progress"] = 30
         
-        # Generate video directly from text
+        # Generate video directly from text using Modal
         result = await video_service.generate_video(prompt, duration)
         
         video_tasks[task_id]["progress"] = 70
@@ -352,10 +252,26 @@ async def get_video_status(task_id: str):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
+    modal_configured = bool(os.getenv("MODAL_TOKEN_ID") and os.getenv("MODAL_TOKEN_SECRET"))
+    
+    # Test connection to the LTX API endpoint
+    ltx_api_status = "unknown"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get("https://rdksupe--ltx-video-api-fastapi-app.modal.run/health")
+            if response.status_code == 200:
+                ltx_api_status = "healthy"
+            else:
+                ltx_api_status = f"error: {response.status_code}"
+    except Exception as e:
+        ltx_api_status = f"unreachable: {str(e)}"
+    
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "api_configured": bool(os.getenv("HF_TOKEN"))
+        "modal_configured": modal_configured,
+        "ltx_api_status": ltx_api_status,
+        "ltx_api_endpoint": "https://rdksupe--ltx-video-api-fastapi-app.modal.run"
     }
 
 @app.get("/")
