@@ -23,13 +23,24 @@ app = FastAPI(
 )
 
 # CORS configuration
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Add environment-specific origins
+frontend_url = os.getenv("FRONTEND_URL")
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
+# For production, allow the same origin (when frontend is served from same domain)
+app_url = os.getenv("APP_URL")
+if app_url:
+    allowed_origins.append(app_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        os.getenv("FRONTEND_URL", "http://localhost:3000")
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,6 +49,23 @@ app.add_middleware(
 # Create static directory for serving videos
 os.makedirs("static/videos", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Serve frontend in production if it exists
+frontend_path = "static/frontend"
+if os.path.exists(frontend_path):
+    from fastapi.responses import FileResponse
+    
+    @app.get("/", include_in_schema=False)
+    async def serve_frontend():
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+    
+    @app.get("/{path:path}", include_in_schema=False)
+    async def serve_frontend_assets(path: str):
+        file_path = os.path.join(frontend_path, path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # For React Router, return index.html for unknown paths
+        return FileResponse(os.path.join(frontend_path, "index.html"))
 
 # In-memory storage for video generation tasks
 video_tasks: Dict[str, Dict[str, Any]] = {}
@@ -55,6 +83,7 @@ class VideoCustomization(BaseModel):
 class VideoGenerationRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=500, description="Text prompt for video generation")
     duration: Optional[int] = Field(default=5, ge=3, le=10, description="Video duration in seconds")
+    use_enhanced_prompt: Optional[bool] = Field(default=True, description="Whether to use AI-enhanced prompt")
     customization: Optional[VideoCustomization] = Field(default=None, description="Video customization options")
     
 class VideoGenerationResponse(BaseModel):
@@ -240,26 +269,35 @@ class ModalVideoService:
 video_service = ModalVideoService()
 prompt_enhancer = GroqPromptEnhancer()
 
-async def process_video_generation(task_id: str, original_prompt: str, duration: int, customization: Optional[VideoCustomization] = None):
-    """Background task to process video generation with Groq prompt enhancement"""
+async def process_video_generation(task_id: str, original_prompt: str, duration: int, use_enhanced_prompt: bool = True, customization: Optional[VideoCustomization] = None):
+    """Background task to process video generation with optional Groq prompt enhancement"""
     try:
         # Update status to processing
         video_tasks[task_id]["status"] = "processing"
         video_tasks[task_id]["progress"] = 5
-        video_tasks[task_id]["message"] = "Enhancing prompt with AI..."
         
-        # Enhance prompt using Groq LLM
-        enhanced_prompt = await prompt_enhancer.enhance_prompt(original_prompt, customization)
-        video_tasks[task_id]["enhanced_prompt"] = enhanced_prompt
-        video_tasks[task_id]["progress"] = 15
-        video_tasks[task_id]["message"] = "Prompt enhanced, starting video generation..."
+        # Determine final prompt to use
+        final_prompt = original_prompt
+        
+        if use_enhanced_prompt:
+            video_tasks[task_id]["message"] = "Enhancing prompt with AI..."
+            
+            # Enhance prompt using Groq LLM
+            enhanced_prompt = await prompt_enhancer.enhance_prompt(original_prompt, customization)
+            video_tasks[task_id]["enhanced_prompt"] = enhanced_prompt
+            final_prompt = enhanced_prompt
+            video_tasks[task_id]["progress"] = 15
+            video_tasks[task_id]["message"] = "Prompt enhanced, starting video generation..."
+        else:
+            video_tasks[task_id]["progress"] = 15
+            video_tasks[task_id]["message"] = "Starting video generation..."
         
         # Real API call using Modal LTX
         video_tasks[task_id]["message"] = "Generating video with Modal LTX API..."
         video_tasks[task_id]["progress"] = 30
         
-        # Generate video using the enhanced prompt
-        result = await video_service.generate_video(enhanced_prompt, duration)
+        # Generate video using the final prompt
+        result = await video_service.generate_video(final_prompt, duration)
         
         video_tasks[task_id]["progress"] = 70
         video_tasks[task_id]["message"] = "Processing video output..."
@@ -307,6 +345,7 @@ async def generate_video(
             "original_prompt": request.prompt,
             "enhanced_prompt": None,
             "duration": request.duration,
+            "use_enhanced_prompt": request.use_enhanced_prompt,
             "customization": request.customization.dict() if request.customization else None,
             "created_at": datetime.now().isoformat(),
             "video_url": None,
@@ -320,6 +359,7 @@ async def generate_video(
             task_id,
             request.prompt,
             request.duration,
+            request.use_enhanced_prompt,
             request.customization
         )
         
@@ -368,9 +408,9 @@ async def health_check():
         "ltx_api_endpoint": "https://rdksupe--ltx-video-api-fastapi-app.modal.run"
     }
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
+@app.get("/api")
+async def api_root():
+    """API root endpoint"""
     return {
         "message": "AI Video Generation API",
         "version": "1.0.0",
