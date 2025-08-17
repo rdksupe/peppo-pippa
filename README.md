@@ -1,8 +1,10 @@
-# AI Video Generation Web Application
+# peppo-pippa
 
-A web application that generates short videos from text prompts using state-of-the-art AI models. The system combines multiple AI services to provide prompt enhancement and high-quality video generation capabilities.
+This was done as a part of an internship application and was prototyped in a constrained timeline of 24 hrs.
 
 ## System Architecture
+
+The task was quite interesting to me mainly because of dearth of hobbyist/free access to most major proprietrary image-video or text-video models. Hence , I was forced to consider alternate options which led me to Modal labs which surprisingly have a generous 30 USD / month free tier and have a per request pricing model where the deployed models are treated like serverless instances and charged accordingly , hence I ended up using it for the model deployment part for the other standard deployment I utilised google cloud run mainly because its the only major cloud company which offers near instantaneous cold starts , as opposed to the atrocious onrender limits. Other than that I experimented with various prompt parameteres and found out that adding very specific camera angles , lightnning effects etc also greatly affects the final model output however as I was highly resourse contrained with regards with my compute availability I was not able to realise the complete potential out of the LTX model.
 
 ### Inference Pipeline
 
