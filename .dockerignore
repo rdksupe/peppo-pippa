@@ -1,0 +1,72 @@
+# Development files
+.git
+.gitignore
+README.md
+DEPLOYMENT.md
+DEPLOYMENT-CLOUDRUN.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing
+.coverage
+.pytest_cache/
+test_*.py
+*_test.py
+test_output_*.mp4
+integration_test.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+server.log
+
+# Frontend development (built in Docker)
+frontend/node_modules/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Modal examples (not needed for production)
+modal-examples/
+
+# Deployment scripts
+deploy-cloudrun.sh
+docker-compose.yml
+docker-compose.prod.yml
