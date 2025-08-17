@@ -1,5 +1,6 @@
 import React from 'react';
 import { VideoTask } from '../App';
+import { getVideoUrl } from '../utils/api';
 
 interface VideoHistoryProps {
   tasks: VideoTask[];
@@ -38,8 +39,13 @@ const VideoHistory: React.FC<VideoHistoryProps> = ({ tasks }) => {
             <div className="flex items-start justify-between mb-3">
               <div className="flex-1">
                 <p className="text-sm font-medium text-gray-900 mb-1">
-                  {task.prompt}
+                  {task.original_prompt || task.enhanced_prompt || 'No prompt available'}
                 </p>
+                {task.enhanced_prompt && task.original_prompt !== task.enhanced_prompt && (
+                  <p className="text-xs text-blue-600 mb-1">
+                    Enhanced by AI
+                  </p>
+                )}
                 <p className="text-xs text-gray-500">
                   {formatDate(task.created_at)}
                 </p>
@@ -48,6 +54,35 @@ const VideoHistory: React.FC<VideoHistoryProps> = ({ tasks }) => {
                 {formatStatus(task.status)}
               </span>
             </div>
+
+            {task.customization && Object.keys(task.customization).length > 0 && (
+              <div className="mb-3 p-2 bg-gray-50 border border-gray-200 rounded text-xs">
+                <strong className="text-gray-700">Customizations:</strong>
+                <div className="mt-1 text-gray-600">
+                  {Object.entries(task.customization).map(([key, value]) => {
+                    if (!value) return null;
+                    const label = key.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const displayValue = Array.isArray(value) ? value.join(', ') : value;
+                    return (
+                      <span key={key} className="inline-block mr-3">
+                        {label}: {displayValue}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {task.enhanced_prompt && task.original_prompt && task.enhanced_prompt !== task.original_prompt && (
+              <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-blue-700 font-medium">
+                    View Enhanced Prompt
+                  </summary>
+                  <p className="mt-2 text-blue-800">{task.enhanced_prompt}</p>
+                </details>
+              </div>
+            )}
 
             {task.progress !== undefined && task.status === 'processing' && (
               <div className="mb-3">
@@ -73,19 +108,46 @@ const VideoHistory: React.FC<VideoHistoryProps> = ({ tasks }) => {
             {task.video_url && task.status === 'completed' && (
               <div className="mt-3">
                 <div className="video-container max-w-md">
-                  <video controls className="w-full">
-                    <source src={task.video_url} type="video/mp4" />
+                  <video controls className="w-full rounded">
+                    <source src={getVideoUrl(task.video_url)} type="video/mp4" />
                     Your browser does not support the video tag.
                   </video>
                 </div>
-                <div className="mt-2">
+                <div className="mt-3 flex space-x-2">
                   <a
-                    href={task.video_url}
+                    href={getVideoUrl(task.video_url)}
                     download
-                    className="btn-secondary text-sm"
+                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 transition-colors"
                   >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
                     Download Video
                   </a>
+                  <button
+                    onClick={() => {
+                      if (task.video_url) {
+                        const fullVideoUrl = getVideoUrl(task.video_url);
+                        if (navigator.share) {
+                          navigator.share({
+                            title: 'AI Generated Video',
+                            text: `Check out this AI-generated video: ${task.original_prompt}`,
+                            url: fullVideoUrl
+                          }).catch(console.error);
+                        } else {
+                          // Fallback - copy URL to clipboard
+                          navigator.clipboard.writeText(fullVideoUrl);
+                          alert('Video URL copied to clipboard!');
+                        }
+                      }
+                    }}
+                    className="inline-flex items-center px-4 py-2 bg-gray-600 text-white text-sm font-medium rounded-md hover:bg-gray-700 transition-colors"
+                  >
+                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+                    </svg>
+                    Share
+                  </button>
                 </div>
               </div>
             )}

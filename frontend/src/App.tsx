@@ -1,18 +1,29 @@
 import React, { useState, useCallback } from 'react';
 import VideoGenerator from './components/VideoGenerator';
 import VideoHistory from './components/VideoHistory';
-import Header from './components/Header';
-import Footer from './components/Footer';
+
+export interface VideoCustomization {
+  style?: string;
+  camera_angle?: string;
+  lighting?: string;
+  movement?: string;
+  mood?: string;
+  color_palette?: string;
+  quality?: string;
+  effects?: string[];
+}
 
 export interface VideoTask {
   task_id: string;
   status: 'queued' | 'processing' | 'completed' | 'failed';
   progress?: number;
-  prompt: string;
+  original_prompt?: string;
+  enhanced_prompt?: string;
   video_url?: string;
   error?: string;
   created_at: string;
   message?: string;
+  customization?: VideoCustomization;
 }
 
 function App() {
@@ -32,8 +43,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header />
-      
       <main className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           {/* Hero Section */}
@@ -74,8 +83,6 @@ function App() {
           )}
         </div>
       </main>
-
-      <Footer />
     </div>
   );
 }

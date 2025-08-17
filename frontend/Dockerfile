@@ -1,4 +1,5 @@
-FROM node:18-alpine
+# Frontend-only Dockerfile for separate deployment
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
@@ -6,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci --only=production
 
 # Copy source code
 COPY . .
@@ -14,11 +15,16 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Install serve to run the app
-RUN npm install -g serve
+# Production stage with nginx
+FROM nginx:alpine
 
-# Expose port
-EXPOSE 3000
+# Copy built app to nginx
+COPY --from=build /app/build /usr/share/nginx/html
 
-# Start the app
-CMD ["serve", "-s", "build", "-l", "3000"]
+# Copy custom nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Expose port 80
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

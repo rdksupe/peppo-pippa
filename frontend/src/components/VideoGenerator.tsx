@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
-import { VideoTask } from '../App';
+import { VideoTask, VideoCustomization } from '../App';
+import { getApiBaseUrl, getVideoUrl, API_ENDPOINTS } from '../utils/api';
 
 interface VideoGeneratorProps {
   onVideoGenerated: (task: VideoTask) => void;
@@ -15,11 +16,142 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
   const [duration, setDuration] = useState(5);
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentTask, setCurrentTask] = useState<VideoTask | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [useEnhancedPrompt, setUseEnhancedPrompt] = useState(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Customization options state
+  const [customization, setCustomization] = useState<VideoCustomization>({
+    style: '',
+    camera_angle: '',
+    lighting: '',
+    movement: '',
+    mood: '',
+    color_palette: '',
+    quality: '',
+    effects: []
+  });
+
+  const styleOptions = [
+    { value: '', label: 'Default' },
+    { value: 'cinematic', label: 'Cinematic' },
+    { value: 'artistic', label: 'Artistic' },
+    { value: 'realistic', label: 'Realistic' },
+    { value: 'fantasy', label: 'Fantasy' },
+    { value: 'sci-fi', label: 'Sci-Fi' },
+    { value: 'documentary', label: 'Documentary' },
+    { value: 'animated', label: 'Animated' },
+    { value: 'vintage', label: 'Vintage' },
+    { value: 'modern', label: 'Modern' }
+  ];
+
+  const cameraOptions = [
+    { value: '', label: 'Default' },
+    { value: 'close-up', label: 'Close-up' },
+    { value: 'medium-shot', label: 'Medium Shot' },
+    { value: 'wide-shot', label: 'Wide Shot' },
+    { value: 'bird-eye', label: "Bird's Eye View" },
+    { value: 'ground-level', label: 'Ground Level' },
+    { value: 'low-angle', label: 'Low Angle' },
+    { value: 'high-angle', label: 'High Angle' },
+    { value: 'first-person', label: 'First Person' },
+    { value: 'over-shoulder', label: 'Over Shoulder' }
+  ];
+
+  const lightingOptions = [
+    { value: '', label: 'Default' },
+    { value: 'natural', label: 'Natural' },
+    { value: 'golden-hour', label: 'Golden Hour' },
+    { value: 'blue-hour', label: 'Blue Hour' },
+    { value: 'dramatic', label: 'Dramatic' },
+    { value: 'soft', label: 'Soft' },
+    { value: 'harsh', label: 'Harsh' },
+    { value: 'neon', label: 'Neon' },
+    { value: 'candlelit', label: 'Candlelit' },
+    { value: 'studio', label: 'Studio' }
+  ];
+
+  const movementOptions = [
+    { value: '', label: 'Default' },
+    { value: 'static', label: 'Static' },
+    { value: 'slow-motion', label: 'Slow Motion' },
+    { value: 'fast-paced', label: 'Fast Paced' },
+    { value: 'smooth-pan', label: 'Smooth Pan' },
+    { value: 'tracking', label: 'Tracking' },
+    { value: 'dolly-zoom', label: 'Dolly Zoom' },
+    { value: 'handheld', label: 'Handheld' },
+    { value: 'aerial', label: 'Aerial' },
+    { value: 'rotation', label: 'Rotation' }
+  ];
+
+  const moodOptions = [
+    { value: '', label: 'Default' },
+    { value: 'peaceful', label: 'Peaceful' },
+    { value: 'energetic', label: 'Energetic' },
+    { value: 'mysterious', label: 'Mysterious' },
+    { value: 'dramatic', label: 'Dramatic' },
+    { value: 'romantic', label: 'Romantic' },
+    { value: 'suspenseful', label: 'Suspenseful' },
+    { value: 'joyful', label: 'Joyful' },
+    { value: 'melancholic', label: 'Melancholic' },
+    { value: 'epic', label: 'Epic' }
+  ];
+
+  const colorOptions = [
+    { value: '', label: 'Default' },
+    { value: 'warm', label: 'Warm Tones' },
+    { value: 'cool', label: 'Cool Tones' },
+    { value: 'monochrome', label: 'Monochrome' },
+    { value: 'vibrant', label: 'Vibrant' },
+    { value: 'muted', label: 'Muted' },
+    { value: 'neon', label: 'Neon' },
+    { value: 'pastel', label: 'Pastel' },
+    { value: 'high-contrast', label: 'High Contrast' },
+    { value: 'sepia', label: 'Sepia' }
+  ];
+
+  const qualityOptions = [
+    { value: '', label: 'Default' },
+    { value: 'hd', label: 'HD' },
+    { value: '4k', label: '4K' },
+    { value: 'ultra-hd', label: 'Ultra HD' },
+    { value: 'professional', label: 'Professional' },
+    { value: 'broadcast', label: 'Broadcast Quality' }
+  ];
+
+  const effectOptions = [
+    { value: 'bokeh', label: 'Bokeh' },
+    { value: 'lens-flare', label: 'Lens Flare' },
+    { value: 'motion-blur', label: 'Motion Blur' },
+    { value: 'depth-of-field', label: 'Depth of Field' },
+    { value: 'film-grain', label: 'Film Grain' },
+    { value: 'vignette', label: 'Vignette' },
+    { value: 'chromatic-aberration', label: 'Chromatic Aberration' },
+    { value: 'bloom', label: 'Bloom' },
+    { value: 'particles', label: 'Particles' },
+    { value: 'fog', label: 'Fog/Smoke' }
+  ];
+
+  const handleCustomizationChange = (field: keyof VideoCustomization, value: string | string[]) => {
+    setCustomization(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleEffectToggle = (effect: string) => {
+    setCustomization(prev => ({
+      ...prev,
+      effects: prev.effects?.includes(effect)
+        ? prev.effects.filter(e => e !== effect)
+        : [...(prev.effects || []), effect]
+    }));
+  };
 
   const pollVideoStatus = useCallback(async (taskId: string) => {
     try {
-      const response = await axios.get(`/api/video-status/${taskId}`);
+      const apiUrl = getApiBaseUrl();
+      const response = await axios.get(`${apiUrl}${API_ENDPOINTS.videoStatus(taskId)}`);
       const task: VideoTask = response.data;
       
       setCurrentTask(task);
@@ -54,17 +186,36 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
     setCurrentTask(null);
 
     try {
-      const response = await axios.post('/api/generate-video', {
+      // Prepare customization object, removing empty values
+      const cleanCustomization: VideoCustomization = {};
+      if (customization.style) cleanCustomization.style = customization.style;
+      if (customization.camera_angle) cleanCustomization.camera_angle = customization.camera_angle;
+      if (customization.lighting) cleanCustomization.lighting = customization.lighting;
+      if (customization.movement) cleanCustomization.movement = customization.movement;
+      if (customization.mood) cleanCustomization.mood = customization.mood;
+      if (customization.color_palette) cleanCustomization.color_palette = customization.color_palette;
+      if (customization.quality) cleanCustomization.quality = customization.quality;
+      if (customization.effects && customization.effects.length > 0) {
+        cleanCustomization.effects = customization.effects;
+      }
+
+      const requestData = {
         prompt: prompt.trim(),
-        duration
-      });
+        duration,
+        use_enhanced_prompt: useEnhancedPrompt,
+        ...(Object.keys(cleanCustomization).length > 0 && { customization: cleanCustomization })
+      };
+
+      const apiUrl = getApiBaseUrl();
+      const response = await axios.post(`${apiUrl}${API_ENDPOINTS.generateVideo}`, requestData);
 
       const initialTask: VideoTask = {
         task_id: response.data.task_id,
         status: 'queued',
-        prompt: prompt.trim(),
+        original_prompt: prompt.trim(),
         created_at: new Date().toISOString(),
-        message: response.data.message
+        message: response.data.message,
+        customization: cleanCustomization
       };
 
       setCurrentTask(initialTask);
@@ -140,6 +291,170 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
           </div>
         </div>
 
+        {/* Enhanced Prompt Option */}
+        <div>
+          <label className="flex items-center space-x-3">
+            <input
+              type="checkbox"
+              checked={useEnhancedPrompt}
+              onChange={(e) => setUseEnhancedPrompt(e.target.checked)}
+              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              disabled={isGenerating}
+            />
+            <div>
+              <span className="text-sm font-medium text-gray-700">
+                Use AI-Enhanced Prompt
+              </span>
+              <p className="text-xs text-gray-500">
+                Let AI improve your prompt for better video generation results
+              </p>
+            </div>
+          </label>
+        </div>
+
+        {/* Advanced Options Toggle */}
+        <div className="border-t pt-4">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="flex items-center justify-between w-full text-left text-sm font-medium text-gray-700 hover:text-gray-900"
+            disabled={isGenerating}
+          >
+            <span>Advanced Customization Options</span>
+            <span className="ml-2">
+              {showAdvanced ? '▼' : '▶'}
+            </span>
+          </button>
+        </div>
+
+        {showAdvanced && (
+          <div className="space-y-4 bg-gray-50 p-4 rounded-lg">
+            {/* Style */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Style</label>
+              <select
+                value={customization.style || ''}
+                onChange={(e) => handleCustomizationChange('style', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {styleOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Camera Angle */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Camera Angle</label>
+              <select
+                value={customization.camera_angle || ''}
+                onChange={(e) => handleCustomizationChange('camera_angle', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {cameraOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Lighting */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Lighting</label>
+              <select
+                value={customization.lighting || ''}
+                onChange={(e) => handleCustomizationChange('lighting', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {lightingOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Movement */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Movement</label>
+              <select
+                value={customization.movement || ''}
+                onChange={(e) => handleCustomizationChange('movement', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {movementOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Mood */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Mood</label>
+              <select
+                value={customization.mood || ''}
+                onChange={(e) => handleCustomizationChange('mood', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {moodOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Color Palette */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Color Palette</label>
+              <select
+                value={customization.color_palette || ''}
+                onChange={(e) => handleCustomizationChange('color_palette', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {colorOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Quality */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Quality</label>
+              <select
+                value={customization.quality || ''}
+                onChange={(e) => handleCustomizationChange('quality', e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-md"
+                disabled={isGenerating}
+              >
+                {qualityOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Effects */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Visual Effects</label>
+              <div className="grid grid-cols-2 gap-2">
+                {effectOptions.map(effect => (
+                  <label key={effect.value} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      checked={customization.effects?.includes(effect.value) || false}
+                      onChange={() => handleEffectToggle(effect.value)}
+                      className="rounded border-gray-300"
+                      disabled={isGenerating}
+                    />
+                    <span className="text-sm text-gray-700">{effect.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={isGenerating || !prompt.trim()}
@@ -166,9 +481,50 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
           </div>
 
           <div className="space-y-3">
-            <p className="text-sm text-gray-600">
-              <strong>Prompt:</strong> {currentTask.prompt}
-            </p>
+            <div>
+              <p className="text-sm text-gray-600">
+                <strong>Original Prompt:</strong> {currentTask.original_prompt}
+              </p>
+              {currentTask.enhanced_prompt && (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                  <p className="text-sm text-blue-800">
+                    <strong>Enhanced Prompt:</strong> {currentTask.enhanced_prompt}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {currentTask.customization && Object.keys(currentTask.customization).length > 0 && (
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded">
+                <p className="text-sm font-medium text-gray-700 mb-2">Customizations Applied:</p>
+                <div className="text-xs text-gray-600 space-y-1">
+                  {currentTask.customization.style && (
+                    <div><strong>Style:</strong> {currentTask.customization.style}</div>
+                  )}
+                  {currentTask.customization.camera_angle && (
+                    <div><strong>Camera:</strong> {currentTask.customization.camera_angle}</div>
+                  )}
+                  {currentTask.customization.lighting && (
+                    <div><strong>Lighting:</strong> {currentTask.customization.lighting}</div>
+                  )}
+                  {currentTask.customization.movement && (
+                    <div><strong>Movement:</strong> {currentTask.customization.movement}</div>
+                  )}
+                  {currentTask.customization.mood && (
+                    <div><strong>Mood:</strong> {currentTask.customization.mood}</div>
+                  )}
+                  {currentTask.customization.color_palette && (
+                    <div><strong>Colors:</strong> {currentTask.customization.color_palette}</div>
+                  )}
+                  {currentTask.customization.quality && (
+                    <div><strong>Quality:</strong> {currentTask.customization.quality}</div>
+                  )}
+                  {currentTask.customization.effects && currentTask.customization.effects.length > 0 && (
+                    <div><strong>Effects:</strong> {currentTask.customization.effects.join(', ')}</div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {currentTask.progress !== undefined && (
               <div>
@@ -201,14 +557,14 @@ const VideoGenerator: React.FC<VideoGeneratorProps> = ({
               <div className="mt-4">
                 <h4 className="text-md font-semibold mb-2">Generated Video</h4>
                 <div className="video-container">
-                  <video controls className="w-full">
-                    <source src={currentTask.video_url} type="video/mp4" />
+                  <video controls className="w-full max-w-md">
+                    <source src={getVideoUrl(currentTask.video_url)} type="video/mp4" />
                     Your browser does not support the video tag.
                   </video>
                 </div>
                 <div className="mt-2 flex space-x-2">
                   <a
-                    href={currentTask.video_url}
+                    href={getVideoUrl(currentTask.video_url)}
                     download
                     className="btn-secondary text-sm"
                   >
