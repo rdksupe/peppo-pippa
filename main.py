@@ -48,24 +48,6 @@ app.add_middleware(
 
 # Create static directory for serving videos
 os.makedirs("static/videos", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Serve frontend in production if it exists
-frontend_path = "static/frontend"
-if os.path.exists(frontend_path):
-    from fastapi.responses import FileResponse
-    
-    @app.get("/", include_in_schema=False)
-    async def serve_frontend():
-        return FileResponse(os.path.join(frontend_path, "index.html"))
-    
-    @app.get("/{path:path}", include_in_schema=False)
-    async def serve_frontend_assets(path: str):
-        file_path = os.path.join(frontend_path, path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
-        # For React Router, return index.html for unknown paths
-        return FileResponse(os.path.join(frontend_path, "index.html"))
 
 # In-memory storage for video generation tasks
 video_tasks: Dict[str, Dict[str, Any]] = {}
@@ -104,14 +86,25 @@ class VideoStatusResponse(BaseModel):
 
 class GroqPromptEnhancer:
     def __init__(self):
-        self.client = OpenAI(
-            api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1"
-        )
+        self.client = None
+        
+    def _get_client(self):
+        """Lazy initialize the client only when needed"""
+        if self.client is None:
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise Exception("GROQ_API_KEY environment variable not set")
+            self.client = OpenAI(
+                api_key=api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+        return self.client
     
     async def enhance_prompt(self, original_prompt: str, customization: Optional[VideoCustomization] = None) -> str:
         """Enhance the user prompt using Groq LLM with customization options"""
         try:
+            client = self._get_client()
+            
             # Build the enhancement instruction
             enhancement_instruction = """You are an expert at creating detailed, cinematic video generation prompts. 
 Your task is to enhance the user's basic prompt into a professional, detailed description that will produce high-quality AI-generated videos.
@@ -152,7 +145,7 @@ Guidelines:
 
 Please enhance this prompt for video generation while keeping it strictly UNDER 300 -characters :"""
 
-            response = self.client.chat.completions.create(
+            response = client.chat.completions.create(
                 model="meta-llama/llama-4-scout-17b-16e-instruct",
                 messages=[
                     {"role": "system", "content": enhancement_instruction},
@@ -260,7 +253,7 @@ class ModalVideoService:
                 with open(filepath, "wb") as f:
                     f.write(video_bytes)
             
-            return f"/static/videos/{filename}"
+            return f"/videos/{filename}"
             
         except Exception as e:
             raise Exception(f"Failed to save video: {str(e)}")
@@ -417,6 +410,52 @@ async def api_root():
         "docs": "/docs",
         "health": "/health"
     }
+
+# Serve frontend in production if it exists (MUST be after all API routes)
+frontend_path = "static/frontend"
+if os.path.exists(frontend_path):
+    from fastapi.responses import FileResponse
+    
+    # Mount frontend static assets first (CSS, JS files)
+    frontend_static_path = os.path.join(frontend_path, "static")
+    if os.path.exists(frontend_static_path):
+        app.mount("/static", StaticFiles(directory=frontend_static_path), name="frontend-static")
+    
+    # Mount video static files under a different path
+    app.mount("/videos", StaticFiles(directory="static/videos"), name="videos")
+    
+    @app.get("/", include_in_schema=False)
+    async def serve_frontend():
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+    
+    @app.get("/manifest.json", include_in_schema=False)
+    async def serve_manifest():
+        manifest_path = os.path.join(frontend_path, "manifest.json")
+        if os.path.exists(manifest_path):
+            return FileResponse(manifest_path)
+        return {"error": "Manifest not found"}
+    
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def serve_favicon():
+        favicon_path = os.path.join(frontend_path, "favicon.ico")
+        if os.path.exists(favicon_path):
+            return FileResponse(favicon_path)
+        return {"error": "Favicon not found"}
+    
+    @app.get("/{path:path}", include_in_schema=False)
+    async def serve_frontend_assets(path: str):
+        # Skip API paths
+        if path.startswith("api/") or path.startswith("docs") or path.startswith("health"):
+            return {"error": "Not found"}
+            
+        file_path = os.path.join(frontend_path, path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # For React Router, return index.html for unknown paths
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+else:
+    # Fallback: just mount videos if no frontend build exists
+    app.mount("/videos", StaticFiles(directory="static/videos"), name="videos")
 
 if __name__ == "__main__":
     import uvicorn
