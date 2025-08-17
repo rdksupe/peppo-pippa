@@ -5,11 +5,14 @@ WORKDIR /app/frontend
 
 # Copy frontend package files
 COPY frontend/package*.json ./
-RUN npm ci 
+RUN npm ci
 
 # Copy frontend source and build
 COPY frontend/ ./
 RUN npm run build
+
+# List build output for debugging
+RUN ls -la build/
 
 # Production backend stage
 FROM python:3.11-slim
@@ -30,6 +33,9 @@ COPY . .
 
 # Copy built frontend
 COPY --from=frontend-build /app/frontend/build ./static/frontend
+
+# Verify frontend files were copied
+RUN ls -la static/frontend/ || echo "Frontend directory not found"
 
 # Create static directory for videos
 RUN mkdir -p static/videos
