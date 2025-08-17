@@ -1,36 +1,50 @@
-# AI Video Generation Web App
+# AI Video Generation Web Application
 
-A minimal AI video generation web app that takes user prompts and generates short videos using AI models.
+A web application that generates short videos from text prompts using state-of-the-art AI models. The system combines multiple AI services to provide prompt enhancement and high-quality video generation capabilities.
 
-## Features
+## System Architecture
 
-- 🎬 Text-to-video generation using Hugging Face Inference API
-- 🚀 Fast and responsive React frontend
-- ⚡ FastAPI backend with async processing
-- 🔒 Secure API key management
-- 🌐 Ready for cloud deployment
-- 📱 Mobile-responsive design
+### Inference Pipeline
 
-## Live Demo
+The application implements a multi-stage inference pipeline that processes user inputs through several AI models:
 
-🔗 **[Live App](https://your-deployed-app-url.com)** *(Will be updated after deployment)*
+1. **Prompt Enhancement Stage** (Optional)
+   - Uses Groq's Llama-4-Scout-17B model to enhance user prompts
+   - Adds cinematic details, camera movements, lighting, and atmospheric elements
+   - Incorporates user customization preferences (style, camera angle, lighting, mood, etc.)
+   - Fallback mechanism reverts to original prompt if enhancement fails
 
-## Tech Stack
+2. **Video Generation Stage**
+   - Leverages Lightricks' LTX Video model deployed on Modal Labs infrastructure
+   - Processes enhanced prompts with configurable parameters:
+     - Frame count: 90-300 frames (3-10 seconds at 30 FPS)
+     - Inference steps: 50 (optimized for quality/speed balance)
+     - Guidance scale: 4.5 (controls adherence to prompt)
+   - Returns high-quality MP4 videos ready for web consumption
 
-- **Frontend**: React, TypeScript, Tailwind CSS
-- **Backend**: FastAPI (Python)
-- **AI Model**: Wan-AI/Wan2.2-TI2V-5B via Hugging Face
-- **Deployment**: Railway/Render (cloud-ready)
+3. **Video Processing Stage**
+   - Downloads generated videos from Modal's endpoint
+   - Stores videos locally in the static directory
+   - Serves videos through FastAPI's static file serving
+   - Provides direct download links with proper CORS headers
 
-## Quick Start
+### Model Details
 
-### Prerequisites
+**Primary Video Generation Model**: Lightricks LTX Video
+- Architecture: Transformer-based video diffusion model
+- Input: Text prompts up to 500 characters
+- Output: MP4 videos at 768x512 resolution
+- Frame rate: 30 FPS
+- Duration: 3-10 seconds configurable
 
-- Python 3.8+
-- Node.js 16+
-- Hugging Face API token
+**Prompt Enhancement Model**: Meta Llama-4-Scout-17B-16E-Instruct
+- Hosted on Groq's inference platform
+- Specialized for creative and cinematic prompt enhancement
+- Temperature: 0.7 for balanced creativity and coherence
+- Max tokens: 500 for comprehensive enhancements
 
-### Installation
+
+### Local Development Setup
 
 1. **Clone the repository**
    ```bash
@@ -38,160 +52,95 @@ A minimal AI video generation web app that takes user prompts and generates shor
    cd peppo-pippa
    ```
 
-2. **Set up environment variables**
+2. **Configure environment variables**
    ```bash
    cp .env.example .env
-   # Add your Hugging Face token to .env file
+   # Edit .env with your API keys
    ```
 
-3. **Install backend dependencies**
+3. **Install dependencies**
    ```bash
+   # Backend dependencies
    pip install -r requirements.txt
+   
+   # Frontend dependencies
+   cd frontend && npm install && cd ..
    ```
 
-4. **Install frontend dependencies**
+4. **Start development servers**
    ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
-
-5. **Run the application**
-   ```bash
-   # Start backend (from root directory)
+   # Backend server (terminal 1)
    uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-   # Start frontend (in new terminal)
-   cd frontend
-   npm start
+   
+   # Frontend server (terminal 2)
+   cd frontend && npm start
    ```
 
-6. **Open your browser**
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000
+5. **Access the application**
+   - Web Interface: http://localhost:3000
    - API Documentation: http://localhost:8000/docs
+   - Health Check: http://localhost:8000/health
 
-## Environment Variables
+## Configuration
 
-Create a `.env` file in the root directory:
+### Required Environment Variables
 
 ```env
-HF_TOKEN=your_huggingface_token_here
-FRONTEND_URL=http://localhost:3000
-BACKEND_URL=http://localhost:8000
+# AI Service API Keys
+GROQ_API_KEY=your_groq_api_key_here
+# Application Configuration
+PORT=8080
+FRONTEND_URL=https://your-frontend-domain.com
+APP_URL=https://your-app-domain.com
 ```
 
-### Getting Hugging Face API Token
+### API Key Setup
 
-1. Sign up at [Hugging Face](https://huggingface.co/)
-2. Go to your profile settings
-3. Navigate to "Access Tokens"
-4. Create a new token with read permissions
-5. Add it to your `.env` file
-
+**Groq API Key**
+1. Register at https://console.groq.com/
+2. Navigate to API Keys section
+3. Generate a new API key with appropriate permissions
+4. Add to environment variables
 ## API Endpoints
 
-- `POST /api/generate-video` - Generate video from text prompt
-- `GET /api/video-status/{task_id}` - Check video generation status
-- `GET /health` - Health check endpoint
+### Video Generation
+- `POST /api/generate-video` - Initiate video generation
+- `GET /api/video-status/{task_id}` - Poll generation status
+- `GET /static/videos/{filename}` - Serve generated videos
 
-## Deployment
+### System Endpoints
+- `GET /health` - Application health check
+- `GET /api` - API information endpoint
+- `GET /docs` - Interactive API documentation
 
-### Railway Deployment
+### Request/Response Schema
 
-1. Connect your GitHub repository to Railway
-2. Set environment variables in Railway dashboard
-3. Deploy with automatic builds
-
-### Render Deployment
-
-1. Connect repository to Render
-2. Configure build and start commands
-3. Set environment variables
-4. Deploy
-
-### Manual Deployment
-
-```bash
-# Build frontend
-cd frontend
-npm run build
-cd ..
-
-# Start production server
-uvicorn main:app --host 0.0.0.0 --port $PORT
+**Video Generation Request**
+```json
+{
+  "prompt": "A cat playing with a ball of yarn",
+  "duration": 5,
+  "use_enhanced_prompt": true,
+  "customization": {
+    "style": "cinematic",
+    "camera_angle": "close-up",
+    "lighting": "natural",
+    "movement": "slow-motion",
+    "mood": "peaceful"
+  }
+}
 ```
 
-## Project Structure
-
-```
-peppo-pippa/
-├── main.py                 # FastAPI backend
-├── models/                 # Pydantic models
-├── services/              # AI service integration
-├── static/                # Static files
-├── frontend/              # React frontend
-│   ├── src/
-│   ├── public/
-│   └── package.json
-├── requirements.txt       # Python dependencies
-├── .env.example          # Environment template
-└── README.md
+**Status Response**
+```json
+{
+  "task_id": "uuid-string",
+  "status": "completed",
+  "progress": 100,
+  "video_url": "/static/videos/video_uuid.mp4",
+  "original_prompt": "Original user input",
+  "enhanced_prompt": "AI-enhanced version",
+  "created_at": "ISO datetime"
+}
 ```
 
-## Features & Enhancements
-
-### Core Features
-- ✅ Text-to-video generation
-- ✅ Real-time generation status
-- ✅ Video preview and download
-- ✅ Responsive design
-
-### Enhancements
-- 🎨 Advanced prompt engineering
-- 💾 Video caching system
-- 📊 Generation history
-- 🔄 Retry mechanism for failed generations
-- 🎛️ Customizable video parameters (duration, style)
-
-## Security
-
-- API keys stored in environment variables
-- CORS protection configured
-- Input validation and sanitization
-- Rate limiting (production ready)
-
-## Troubleshooting
-
-### Common Issues
-
-1. **API Key Issues**
-   - Ensure your Runway ML API key is valid
-   - Check API key permissions
-
-2. **CORS Errors**
-   - Verify FRONTEND_URL in environment variables
-   - Check CORS configuration in main.py
-
-3. **Deployment Issues**
-   - Ensure all environment variables are set
-   - Check build logs for errors
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details
-
-## Support
-
-For issues or questions, please open a GitHub issue or contact the development team.
-
----
-
-Built with ❤️ for the Peppo AI Engineering Internship Challenge
